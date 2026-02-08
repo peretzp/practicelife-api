@@ -1,0 +1,24 @@
+{
+  "name": "practicelife-api",
+  "version": "0.1.0",
+  "description": "Local-first personal API unifying MemoryAtlas, Obsidian vault, and system state",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch --watch-path=server.js --watch-path=routes --watch-path=lib server.js",
+    "test": "node --test test/"
+  },
+  "keywords": [
+    "personal-api",
+    "local-first",
+    "memoryatlas",
+    "obsidian"
+  ],
+  "license": "MIT",
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "dependencies": {
+    "better-sqlite3": "^12.6.2"
+  }
+}
