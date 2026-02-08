@@ -1,0 +1,773 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "PracticeLife API",
+    "version": "0.1.0",
+    "description": "Local-first personal API for MemoryAtlas, Obsidian vault, system state, and agent coordination."
+  },
+  "servers": [
+    {
+      "url": "http://127.0.0.1:3001",
+      "description": "Local development server"
+    }
+  ],
+  "paths": {
+    "/api": {
+      "get": {
+        "summary": "API index",
+        "responses": {
+          "200": {
+            "description": "Endpoint catalog",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiIndexResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/health": {
+      "get": {
+        "summary": "Health check",
+        "responses": {
+          "200": {
+            "description": "Service health",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/atlas/assets": {
+      "get": {
+        "summary": "List assets",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "default": 50,
+              "minimum": 1,
+              "maximum": 200
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "default": 0,
+              "minimum": 0
+            }
+          },
+          {
+            "name": "type",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "description": "Asset source type, for example voice_memo"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Paginated assets",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AtlasAssetListResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "MemoryAtlas database unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/atlas/assets/{id}": {
+      "get": {
+        "summary": "Get one asset",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Asset record",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Asset"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Asset not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "MemoryAtlas database unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/atlas/stats": {
+      "get": {
+        "summary": "MemoryAtlas statistics",
+        "responses": {
+          "200": {
+            "description": "Aggregate MemoryAtlas statistics",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AtlasStatsResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "MemoryAtlas database unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/atlas/search/{query}": {
+      "get": {
+        "summary": "Search assets by title",
+        "parameters": [
+          {
+            "name": "query",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Search results",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AtlasSearchResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "MemoryAtlas database unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/vault/stats": {
+      "get": {
+        "summary": "Vault note stats",
+        "responses": {
+          "200": {
+            "description": "Vault totals",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VaultStatsResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/vault/notes": {
+      "get": {
+        "summary": "List notes in a vault directory",
+        "parameters": [
+          {
+            "name": "dir",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Note list",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VaultNotesResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid directory",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/vault/note": {
+      "get": {
+        "summary": "Read a note",
+        "parameters": [
+          {
+            "name": "path",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Note content",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VaultNoteResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid note path",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Note not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/vault/structure": {
+      "get": {
+        "summary": "List top-level vault structure",
+        "responses": {
+          "200": {
+            "description": "Top-level entries",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VaultStructureResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/system/state": {
+      "get": {
+        "summary": "Current machine state",
+        "responses": {
+          "200": {
+            "description": "System state",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SystemStateResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/system/volumes": {
+      "get": {
+        "summary": "Mounted volumes",
+        "responses": {
+          "200": {
+            "description": "Volume list",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SystemVolumesResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/system/ollama": {
+      "get": {
+        "summary": "Ollama model inventory",
+        "responses": {
+          "200": {
+            "description": "Ollama availability and models",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SystemOllamaResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/agents/protocol": {
+      "get": {
+        "summary": "Read the agent protocol",
+        "responses": {
+          "200": {
+            "description": "Protocol content",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentProtocolResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Protocol not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/agents/sessions": {
+      "get": {
+        "summary": "List session logs",
+        "responses": {
+          "200": {
+            "description": "Session log metadata",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentSessionsResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/agents/sessions/{name}": {
+      "get": {
+        "summary": "Read one session log",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Session log body",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentSessionResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid path",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Session log not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/agents/collab-brief": {
+      "get": {
+        "summary": "Read collaboration brief",
+        "responses": {
+          "200": {
+            "description": "Brief content",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentCollabBriefResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Brief not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "ApiIndexResponse": {
+        "type": "object",
+        "required": ["name", "version", "endpoints"],
+        "properties": {
+          "name": { "type": "string" },
+          "version": { "type": "string" },
+          "endpoints": { "type": "object", "additionalProperties": { "type": "object" } }
+        }
+      },
+      "HealthResponse": {
+        "type": "object",
+        "required": ["ok", "uptime"],
+        "properties": {
+          "ok": { "type": "boolean" },
+          "uptime": { "type": "number" }
+        }
+      },
+      "ErrorResponse": {
+        "type": "object",
+        "required": ["error"],
+        "properties": {
+          "error": { "type": "string" },
+          "path": { "type": "string" }
+        },
+        "additionalProperties": true
+      },
+      "Asset": {
+        "type": "object",
+        "description": "Record from MemoryAtlas SQLite `asset` table.",
+        "properties": {
+          "id": { "type": ["string", "integer"] },
+          "source_type": { "type": "string" },
+          "title": { "type": ["string", "null"] },
+          "duration_sec": { "type": ["number", "null"] },
+          "recorded_at": { "type": ["string", "null"] },
+          "transcript_status": { "type": ["string", "null"] },
+          "note_path": { "type": ["string", "null"] },
+          "published_at": { "type": ["string", "null"] },
+          "file_size_bytes": { "type": ["integer", "null"] }
+        },
+        "additionalProperties": true
+      },
+      "AtlasAssetListResponse": {
+        "type": "object",
+        "required": ["assets", "total", "limit", "offset"],
+        "properties": {
+          "assets": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/Asset" }
+          },
+          "total": { "type": "integer" },
+          "limit": { "type": "integer" },
+          "offset": { "type": "integer" }
+        }
+      },
+      "AtlasStatsByType": {
+        "type": "object",
+        "required": ["source_type", "count"],
+        "properties": {
+          "source_type": { "type": ["string", "null"] },
+          "count": { "type": "integer" }
+        }
+      },
+      "AtlasStatsResponse": {
+        "type": "object",
+        "required": ["total_assets", "byType"],
+        "properties": {
+          "total_assets": { "type": "integer" },
+          "total_duration_seconds": { "type": ["number", "null"] },
+          "earliest": { "type": ["string", "null"] },
+          "latest": { "type": ["string", "null"] },
+          "transcribed_count": { "type": ["integer", "null"] },
+          "published_count": { "type": ["integer", "null"] },
+          "total_size_bytes": { "type": ["integer", "null"] },
+          "byType": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/AtlasStatsByType" }
+          }
+        },
+        "additionalProperties": true
+      },
+      "AtlasSearchResult": {
+        "type": "object",
+        "properties": {
+          "id": { "type": ["string", "integer"] },
+          "title": { "type": ["string", "null"] },
+          "source_type": { "type": ["string", "null"] },
+          "duration_sec": { "type": ["number", "null"] },
+          "recorded_at": { "type": ["string", "null"] },
+          "transcript_status": { "type": ["string", "null"] },
+          "note_path": { "type": ["string", "null"] }
+        },
+        "additionalProperties": true
+      },
+      "AtlasSearchResponse": {
+        "type": "object",
+        "required": ["results", "query", "count"],
+        "properties": {
+          "results": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/AtlasSearchResult" }
+          },
+          "query": { "type": "string" },
+          "count": { "type": "integer" }
+        }
+      },
+      "VaultStatsResponse": {
+        "type": "object",
+        "required": ["totalNotes", "vaultPath"],
+        "properties": {
+          "totalNotes": { "type": "integer" },
+          "vaultPath": { "type": "string" }
+        }
+      },
+      "VaultNoteListItem": {
+        "type": "object",
+        "required": ["name", "path", "modified"],
+        "properties": {
+          "name": { "type": "string" },
+          "path": { "type": "string" },
+          "modified": { "type": "string", "format": "date-time" }
+        }
+      },
+      "VaultNotesResponse": {
+        "type": "object",
+        "required": ["notes", "directory"],
+        "properties": {
+          "notes": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/VaultNoteListItem" }
+          },
+          "directory": { "type": "string" }
+        }
+      },
+      "VaultNoteResponse": {
+        "type": "object",
+        "required": ["path", "content"],
+        "properties": {
+          "path": { "type": "string" },
+          "content": { "type": "string" }
+        }
+      },
+      "VaultStructureEntry": {
+        "type": "object",
+        "required": ["name", "type"],
+        "properties": {
+          "name": { "type": "string" },
+          "type": { "type": "string", "enum": ["directory", "file"] }
+        }
+      },
+      "VaultStructureResponse": {
+        "type": "object",
+        "required": ["structure"],
+        "properties": {
+          "structure": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/VaultStructureEntry" }
+          }
+        }
+      },
+      "SystemStateResponse": {
+        "type": "object",
+        "required": ["hostname", "platform", "arch", "cpus", "totalMemoryGB", "freeMemoryGB", "diskUsed", "diskFree", "uptime", "loadAvg"],
+        "properties": {
+          "hostname": { "type": "string" },
+          "platform": { "type": "string" },
+          "arch": { "type": "string" },
+          "cpus": { "type": "integer" },
+          "totalMemoryGB": { "type": "number" },
+          "freeMemoryGB": { "type": "number" },
+          "diskUsed": { "type": ["string", "null"] },
+          "diskFree": { "type": ["string", "null"] },
+          "uptime": { "type": ["string", "null"] },
+          "loadAvg": {
+            "type": "object",
+            "required": ["1m", "5m", "15m"],
+            "properties": {
+              "1m": { "type": "number" },
+              "5m": { "type": "number" },
+              "15m": { "type": "number" }
+            }
+          }
+        }
+      },
+      "SystemVolumesResponse": {
+        "type": "object",
+        "required": ["volumes"],
+        "properties": {
+          "volumes": {
+            "type": "array",
+            "items": { "type": "string" }
+          }
+        }
+      },
+      "SystemOllamaModel": {
+        "type": "object",
+        "properties": {
+          "name": { "type": "string" },
+          "size": { "type": ["string", "null"] },
+          "modified": { "type": ["string", "null"] }
+        },
+        "additionalProperties": true
+      },
+      "SystemOllamaResponse": {
+        "type": "object",
+        "required": ["available", "models"],
+        "properties": {
+          "available": { "type": "boolean" },
+          "models": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/SystemOllamaModel" }
+          }
+        }
+      },
+      "AgentProtocolResponse": {
+        "type": "object",
+        "required": ["path", "content"],
+        "properties": {
+          "path": { "type": "string" },
+          "content": { "type": "string" }
+        }
+      },
+      "AgentSessionListItem": {
+        "type": "object",
+        "required": ["name", "modified", "sizeBytes"],
+        "properties": {
+          "name": { "type": "string" },
+          "modified": { "type": "string", "format": "date-time" },
+          "sizeBytes": { "type": "integer" }
+        }
+      },
+      "AgentSessionsResponse": {
+        "type": "object",
+        "required": ["sessions"],
+        "properties": {
+          "sessions": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/AgentSessionListItem" }
+          }
+        }
+      },
+      "AgentSessionResponse": {
+        "type": "object",
+        "required": ["name", "content"],
+        "properties": {
+          "name": { "type": "string" },
+          "content": { "type": "string" }
+        }
+      },
+      "AgentCollabBriefResponse": {
+        "type": "object",
+        "required": ["content"],
+        "properties": {
+          "content": { "type": "string" }
+        }
+      }
+    }
+  },
+  "x-artifact-footer": {
+    "timestamp": "2026-02-08T15:18:54-0800",
+    "location": "N/A",
+    "signedBy": "Peretz Partensky",
+    "ai": "Codex (GPT-5)",
+    "chatProject": "Multi-agent API wiring",
+    "conversationLink": "Codex desktop thread (local)",
+    "artifactPath": "/Users/peretz_1/api/openapi.json"
+  }
+}
