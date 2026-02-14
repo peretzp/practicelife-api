@@ -40,6 +40,16 @@ function register(router) {
     return { status: 200, body: { volumes } };
   });
 
+  router.get('/api/system/usage', (req, params) => {
+    const usageJson = run('node /Users/peretz_1/.claude/prompt-store.js usage 2>/dev/null', 10000);
+    if (!usageJson) return { status: 200, body: { error: 'Usage data unavailable' } };
+    try {
+      return { status: 200, body: JSON.parse(usageJson) };
+    } catch {
+      return { status: 200, body: { error: 'Parse error' } };
+    }
+  });
+
   router.get('/api/system/ollama', (req, params) => {
     const models = run('ollama list 2>/dev/null');
     if (!models) return { status: 200, body: { available: false, models: [] } };
