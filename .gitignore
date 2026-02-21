@@ -11,3 +11,7 @@ node_modules/
 auth.json
 credentials.*
 .linkedin-mcp-profile/
+
+# Logs
+*.log
+*.err
