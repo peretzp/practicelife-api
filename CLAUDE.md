@@ -15,7 +15,11 @@ npm start                 # Production start
 npm test                  # Run test suite
 ```
 
-Server runs at `http://localhost:3001` (port 3001 to avoid conflict with life-dashboard on 3000).
+**Server runs at `https://localhost:3001` (HTTPS only with self-signed cert).**
+- Health check: `https://localhost:3001/health`
+- API index: `https://localhost:3001/api`
+- Use `curl -k` for testing (ignores certificate warnings)
+- Port 3001 avoids conflict with life-dashboard on 3000
 
 ## Architecture
 

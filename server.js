@@ -22,6 +22,7 @@ require('./routes/vault').register(router);
 require('./routes/system').register(router);
 require('./routes/agents').register(router);
 require('./routes/ecosystem').register(router);
+require('./routes/spend').register(router);
 
 // Root endpoint — API index
 router.get('/api', (req, params) => {
@@ -57,6 +58,11 @@ router.get('/api', (req, params) => {
         ecosystem: {
           'GET /api/ecosystem': 'Complete PracticeLife OS map — services, agents, schedulers, infrastructure (?format=json|text)',
         },
+        spend: {
+          'GET /api/spend': 'Token usage and cost analysis across all AI services',
+          'GET /api/spend/cache': 'Explain how Claude prompt caching saves money',
+          'GET /api/spend/services': 'Token usage apportioned by service (:3000, :3001, Cursor, etc)',
+        },
       },
     },
   };
@@ -71,6 +77,16 @@ const { trackLLMCall } = require('./lib/langfuse-wrapper');
 // Health check
 router.get('/health', (req, params) => {
   return { status: 200, body: { ok: true, uptime: process.uptime() } };
+});
+
+// Spend dashboard UI
+router.get('/spend', (req, params) => {
+  const html = fs.readFileSync(path.join(__dirname, 'public/spend.html'), 'utf8');
+  return {
+    status: 200,
+    headers: { 'Content-Type': 'text/html' },
+    body: html
+  };
 });
 
 // Simple async test (no Langfuse)
