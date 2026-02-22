@@ -20,3 +20,5 @@ credentials.*
 *.key
 *.crt
 *.pem
+*.backup
+*.http-backup
