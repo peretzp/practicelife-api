@@ -62,9 +62,78 @@ router.get('/api', (req, params) => {
   };
 });
 
+// Load environment variables
+require('dotenv').config();
+
+// Langfuse wrapper for LLM tracking
+const { trackLLMCall } = require('./lib/langfuse-wrapper');
+
 // Health check
 router.get('/health', (req, params) => {
   return { status: 200, body: { ok: true, uptime: process.uptime() } };
+});
+
+// Simple async test (no Langfuse)
+router.get('/api/test/async', async (req, params) => {
+  await new Promise(resolve => setTimeout(resolve, 100));
+  return {
+    status: 200,
+    body: { message: 'Async handler works!', timestamp: new Date().toISOString() }
+  };
+});
+
+// Demo endpoint: Langfuse instrumentation test
+// This demonstrates how to track LLM calls when/if we add them
+router.get('/api/demo/llm-call', async (req, params) => {
+  try {
+    const startTime = Date.now();
+
+    // Simulate an LLM call (in real usage, this would be anthropic.messages.create() or similar)
+    const mockPrompt = "Analyze the PracticeLife OS ecosystem and suggest optimizations";
+    const mockResponse = "Based on the ecosystem analysis:\n1. Consolidate dashboard services\n2. Add caching layer\n3. Optimize database queries";
+    const mockUsage = {
+      input: 150,
+      output: 75,
+      total: 225,
+      cacheRead: 0,
+      cacheCreate: 0
+    };
+
+    // Track with Langfuse (non-blocking - fire and forget)
+    const trackingResult = await trackLLMCall({
+      name: 'ecosystem-optimization-analysis',
+      model: 'claude-sonnet-4-5-20250929',
+      input: mockPrompt,
+      output: mockResponse,
+      usage: mockUsage,
+      metadata: {
+        endpoint: '/api/demo/llm-call',
+        duration_ms: Date.now() - startTime,
+        demo: true
+      },
+      userId: 'peretz',
+      sessionId: 'demo-session'
+    });
+
+    return {
+      status: 200,
+      body: {
+        message: 'Langfuse instrumentation demo',
+        response: mockResponse,
+        usage: mockUsage,
+        langfuse: trackingResult
+      }
+    };
+  } catch (error) {
+    console.error('[Langfuse demo] Error:', error);
+    return {
+      status: 500,
+      body: {
+        error: 'Demo endpoint failed',
+        details: error.message
+      }
+    };
+  }
 });
 
 function renderLandingPage() {
@@ -392,8 +461,28 @@ const server = https.createServer(sslOptions, (req, res) => {
 
   try {
     const result = match.handler(req, match.params);
-    res.writeHead(result.status, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify(result.body, null, 2));
+    // Handle async handlers (Promise)
+    if (result && typeof result.then === 'function') {
+      result.then(data => {
+        console.log('[DEBUG] Async handler returned:', JSON.stringify(data));
+        if (!data || typeof data.status === 'undefined') {
+          console.error('[ERROR] Invalid response from async handler - missing status');
+          res.writeHead(500, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Internal server error - invalid handler response' }));
+          return;
+        }
+        res.writeHead(data.status, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify(data.body, null, 2));
+      }).catch(err => {
+        console.error(`[${req.method} ${req.url}]`, err);
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Internal server error' }));
+      });
+    } else {
+      // Synchronous handler
+      res.writeHead(result.status, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify(result.body, null, 2));
+    }
   } catch (err) {
     console.error(`[${req.method} ${req.url}]`, err);
     res.writeHead(500, { 'Content-Type': 'application/json' });
