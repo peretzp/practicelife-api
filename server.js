@@ -4,6 +4,9 @@
 // Port 3001 (life-dashboard is on 3000)
 
 const http = require('http');
+const https = require('https');
+const fs = require('fs');
+const path = require('path');
 const { Router } = require('./lib/router');
 const { close: closeDb } = require('./lib/db');
 
@@ -153,9 +156,9 @@ function renderLandingPage() {
 </div>
 
 <div class="services-bar">
-  <div class="svc-chip"><span class="sdot on"></span><a href="http://localhost:3000">Dashboard</a> :3000</div>
-  <div class="svc-chip"><span class="sdot on"></span><a href="http://localhost:3001">API</a> :3001</div>
-  <div class="svc-chip" id="svc-prompts"><span class="sdot off"></span><a href="http://localhost:3002">Prompts</a> :3002</div>
+  <div class="svc-chip"><span class="sdot on"></span><a href="https://localhost:3000">Dashboard</a> :3000</div>
+  <div class="svc-chip"><span class="sdot on"></span><a href="https://localhost:3001">API</a> :3001</div>
+  <div class="svc-chip" id="svc-prompts"><span class="sdot off"></span><a href="https://localhost:3002">Prompts</a> :3002</div>
 </div>
 
 <div class="page">
@@ -268,7 +271,7 @@ async function loadAll() {
 
   // Prompts (from prompt browser)
   try {
-    const pb = await fetch('http://localhost:3002/api/stats');
+    const pb = await fetch('https://localhost:3002/api/stats');
     if (pb.ok) {
       const pbd = await pb.json();
       document.getElementById('w-prompts').textContent = pbd.total;
@@ -292,7 +295,7 @@ async function loadAll() {
 
   // Check prompt browser
   try {
-    const pr = await fetch('http://localhost:3002/api/stats');
+    const pr = await fetch('https://localhost:3002/api/stats');
     if (pr.ok) {
       document.querySelector('#svc-prompts .sdot').classList.replace('off','on');
     }
@@ -353,7 +356,14 @@ setInterval(loadAll, 30000);
 }
 
 // HTTP server
-const server = http.createServer((req, res) => {
+
+// SSL certificate options
+const sslOptions = {
+  key: fs.readFileSync(path.join(process.env.HOME, '.ssl/localhost.key')),
+  cert: fs.readFileSync(path.join(process.env.HOME, '.ssl/localhost.crt'))
+};
+
+const server = https.createServer(sslOptions, (req, res) => {
   // CORS for local development
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
@@ -392,8 +402,8 @@ const server = http.createServer((req, res) => {
 });
 
 server.listen(PORT, HOST, () => {
-  console.log(`PracticeLife API running at http://${HOST}:${PORT}`);
-  console.log(`Endpoints index: http://${HOST}:${PORT}/api`);
+  console.log(`PracticeLife API running at https://${HOST}:${PORT}`);
+  console.log(`Endpoints index: https://${HOST}:${PORT}/api`);
 });
 
 // Graceful shutdown
