@@ -21,8 +21,10 @@ require('./routes/atlas').register(router);
 require('./routes/vault').register(router);
 require('./routes/system').register(router);
 require('./routes/agents').register(router);
+require('./routes/agent-lifecycle').register(router);
 require('./routes/ecosystem').register(router);
 require('./routes/spend').register(router);
+require('./routes/fleet').register(router);
 
 // Root endpoint — API index
 router.get('/api', (req, params) => {
@@ -54,9 +56,19 @@ router.get('/api', (req, params) => {
           'GET /api/agents/sessions': 'List Claude session logs',
           'GET /api/agents/sessions/:name': 'Read specific session log',
           'GET /api/agents/collab-brief': 'Codex-Claude collaboration brief',
+          'GET /api/agents/health': 'Comprehensive agent health check (active, parked, processes)',
+          'GET /api/agents/active': 'List currently active agents',
+          'POST /api/agents/spawn': 'Spawn new agent (planned)',
+          'POST /api/agents/park': 'Park running agent (planned)',
+          'POST /api/agents/handoff': 'Create handoff entry (planned)',
         },
         ecosystem: {
           'GET /api/ecosystem': 'Complete PracticeLife OS map — services, agents, schedulers, infrastructure (?format=json|text)',
+        },
+        fleet: {
+          'GET /api/fleet': 'Full fleet status — Hearth, Anvil, NAS, mobile devices, routing, Tailscale',
+          'GET /api/fleet/anvil': 'Quick Anvil health check (Ollama status + models)',
+          'GET /api/fleet/routes': 'LiteLLM routing table (anvil/local/cloud/gpu routes)',
         },
         spend: {
           'GET /api/spend': 'Token usage and cost analysis across all AI services',

@@ -41,7 +41,7 @@ function register(router) {
   });
 
   router.get('/api/system/usage', (req, params) => {
-    const usageJson = run('node /Users/peretz_1/.claude/prompt-store.js usage 2>/dev/null', 10000);
+    const usageJson = run(`node ${require('os').homedir()}/.claude/prompt-store.js usage 2>/dev/null`, 10000);
     if (!usageJson) return { status: 200, body: { error: 'Usage data unavailable' } };
     try {
       return { status: 200, body: JSON.parse(usageJson) };
