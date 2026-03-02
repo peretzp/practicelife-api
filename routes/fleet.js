@@ -7,6 +7,7 @@ const os = require('os');
 const ANVIL_LAN = '192.168.1.105';
 const ANVIL_TS = '100.116.17.120';
 const ANVIL_OLLAMA = 11434;
+const ANVIL_DASHBOARD = 3000;
 const LITELLM_PORT = 4000;
 
 function run(cmd, timeout = 5000) {
@@ -64,22 +65,32 @@ function getHearthSystem() {
 function register(router) {
   // GET /api/fleet — Full fleet status
   router.get('/api/fleet', async (req, params) => {
-    // Probe all endpoints in parallel
+    // Probe all endpoints in parallel (Anvil dashboard replaces multiple probes)
     const [
+      anvilDashboard,
       anvilOllama,
       anvilOllamaTs,
       litellm,
       localOllama,
     ] = await Promise.all([
+      probe(ANVIL_LAN, ANVIL_DASHBOARD, '/api/status'),
       probe(ANVIL_LAN, ANVIL_OLLAMA, '/api/tags'),
       probe(ANVIL_TS, ANVIL_OLLAMA, '/api/tags'),
       probe('127.0.0.1', LITELLM_PORT, '/health/readiness'),
       probe('127.0.0.1', ANVIL_OLLAMA, '/api/tags'),
     ]);
 
-    // Parse Anvil models
+    // Parse Anvil models — prefer dashboard data, fallback to direct Ollama
     let anvilModels = [];
-    if (anvilOllama.ok && anvilOllama.data?.models) {
+    if (anvilDashboard.ok && anvilDashboard.data?.ollama?.available) {
+      anvilModels = anvilDashboard.data.ollama.available.map(m => ({
+        name: m.name,
+        size: m.sizeGB + 'GB',
+        family: m.family || 'unknown',
+        parameterSize: m.parameterSize || 'unknown',
+        quantization: m.quantization || 'unknown',
+      }));
+    } else if (anvilOllama.ok && anvilOllama.data?.models) {
       anvilModels = anvilOllama.data.models.map(m => ({
         name: m.name,
         size: m.size ? `${(m.size / 1073741824).toFixed(1)}GB` : 'unknown',
@@ -99,9 +110,16 @@ function register(router) {
       }));
     }
 
-    // Get Anvil system info (SSH — slower, do only if Ollama is reachable)
+    // Get Anvil system info — prefer dashboard API (fast), fallback to SSH (slow)
     let anvilSystem = null;
-    if (anvilOllama.ok) {
+    let anvilMetrics = null;
+    let anvilJobs = null;
+    if (anvilDashboard.ok && anvilDashboard.data) {
+      const ad = anvilDashboard.data;
+      anvilSystem = ad.system;
+      anvilMetrics = ad.metrics;
+      anvilJobs = ad.jobs;
+    } else if (anvilOllama.ok) {
       anvilSystem = getAnvilSystem();
     }
 
@@ -174,6 +192,13 @@ function register(router) {
           role: 'Inference workhorse — local LLM serving',
           ip: { lan: ANVIL_LAN, tailscale: ANVIL_TS },
           system: anvilSystem,
+          metrics: anvilMetrics,
+          jobs: anvilJobs,
+          dashboard: {
+            url: `http://${ANVIL_LAN}:${ANVIL_DASHBOARD}`,
+            status: anvilDashboard.ok ? 'up' : 'down',
+            latencyMs: anvilDashboard.latencyMs,
+          },
           connectivity: {
             lan: { reachable: anvilOllama.ok, latencyMs: anvilOllama.latencyMs },
             tailscale: { reachable: anvilOllamaTs.ok, latencyMs: anvilOllamaTs.latencyMs },
