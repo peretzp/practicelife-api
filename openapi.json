@@ -768,6 +768,6 @@
     "ai": "Codex (GPT-5)",
     "chatProject": "Multi-agent API wiring",
     "conversationLink": "Codex desktop thread (local)",
-    "artifactPath": "/Users/peretz_1/api/openapi.json"
+    "artifactPath": "/Users/peretz/api/openapi.json"
   }
 }

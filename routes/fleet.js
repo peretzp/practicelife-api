@@ -287,6 +287,21 @@ function register(router) {
     };
   });
 
+  // GET /api/fleet/search — Semantic search over vault embeddings (proxied to Anvil)
+  router.get('/api/fleet/search', async (req, params) => {
+    const url = new URL(req.url, 'http://localhost');
+    const q = url.searchParams.get('q');
+    const limit = url.searchParams.get('limit') || '10';
+    if (!q) {
+      return { status: 400, body: { error: 'Missing ?q= parameter' } };
+    }
+    const result = await probe(ANVIL_LAN, 3100, `/search?q=${encodeURIComponent(q)}&limit=${limit}`);
+    if (!result.ok) {
+      return { status: 502, body: { error: 'Vault embed API unreachable on Anvil:3100', latencyMs: result.latencyMs } };
+    }
+    return { status: 200, body: result.data };
+  });
+
   // GET /api/fleet/routes — LiteLLM routing table
   router.get('/api/fleet/routes', async (req, params) => {
     const models = await new Promise(resolve => {

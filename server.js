@@ -9,9 +9,10 @@ const fs = require('fs');
 const path = require('path');
 const { Router } = require('./lib/router');
 const { close: closeDb } = require('./lib/db');
+const { close: closeTaskDb } = require('./lib/taskdb');
 
 const PORT = process.env.PORT || 3001;
-const HOST = process.env.HOST || '127.0.0.1';
+const HOST = process.env.HOST || '0.0.0.0';
 
 // Set up router
 const router = new Router();
@@ -25,6 +26,8 @@ require('./routes/agent-lifecycle').register(router);
 require('./routes/ecosystem').register(router);
 require('./routes/spend').register(router);
 require('./routes/fleet').register(router);
+require('./routes/tasks').register(router);
+require('./routes/taskqueue').register(router);
 
 // Root endpoint — API index
 router.get('/api', (req, params) => {
@@ -69,6 +72,20 @@ router.get('/api', (req, params) => {
           'GET /api/fleet': 'Full fleet status — Hearth, Anvil, NAS, mobile devices, routing, Tailscale',
           'GET /api/fleet/anvil': 'Quick Anvil health check (Ollama status + models)',
           'GET /api/fleet/routes': 'LiteLLM routing table (anvil/local/cloud/gpu routes)',
+        },
+        queue: {
+          'GET /api/q/tasks': 'List tasks (filters: ?owner=peretz&status=open&priority=1&category=time-sensitive)',
+          'POST /api/q/tasks': 'Create task { title, description, owner, assignee, priority, source, category, tags }',
+          'GET /api/q/tasks/:id': 'Get task with conversation thread',
+          'PATCH /api/q/tasks/:id': 'Update task { status, priority, assignee, ... }',
+          'DELETE /api/q/tasks/:id': 'Delete task',
+          'POST /api/q/tasks/:id/messages': 'Add message to thread { author, type, content }',
+          'POST /api/q/tasks/:id/ack': 'Acknowledge task { agent }',
+          'GET /api/q/queue/:owner': 'Get queue for owner (peretz, kevin, agent-name)',
+          'GET /api/q/priorities': 'Priority overview across all queues',
+          'GET /api/q/stats': 'Task queue statistics',
+          'GET /api/q/search?q=': 'Search tasks and messages (FTS5)',
+          'POST /api/q/import': 'Import from TASKS.md (idempotent)',
         },
         spend: {
           'GET /api/spend': 'Token usage and cost analysis across all AI services',
@@ -463,7 +480,7 @@ const sslOptions = {
 const server = https.createServer(sslOptions, (req, res) => {
   // CORS for local development
   res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PATCH, DELETE, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
 
   if (req.method === 'OPTIONS') {
@@ -472,8 +489,6 @@ const server = https.createServer(sslOptions, (req, res) => {
     return;
   }
 
-  const match = router.match(req.method, req.url);
-
   // Landing page at /
   if (req.url === '/' || req.url === '/index.html') {
     res.writeHead(200, { 'Content-Type': 'text/html' });
@@ -481,12 +496,32 @@ const server = https.createServer(sslOptions, (req, res) => {
     return;
   }
 
+  const match = router.match(req.method, req.url);
+
   if (!match) {
     res.writeHead(404, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ error: 'Not found', path: req.url }));
     return;
   }
 
+  // Parse JSON body for POST/PATCH/DELETE
+  const needsBody = ['POST', 'PATCH', 'DELETE'].includes(req.method);
+  if (needsBody) {
+    let body = '';
+    req.on('data', chunk => { body += chunk; });
+    req.on('end', () => {
+      try {
+        req.body = body ? JSON.parse(body) : {};
+      } catch { req.body = {}; }
+      handleRoute(req, res, match);
+    });
+    return;
+  }
+
+  handleRoute(req, res, match);
+});
+
+function handleRoute(req, res, match) {
   try {
     const result = match.handler(req, match.params);
     // Handle async handlers (Promise)
@@ -508,15 +543,16 @@ const server = https.createServer(sslOptions, (req, res) => {
       });
     } else {
       // Synchronous handler
-      res.writeHead(result.status, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify(result.body, null, 2));
+      const ct = (result.headers && result.headers['Content-Type']) || 'application/json';
+      res.writeHead(result.status, { 'Content-Type': ct });
+      res.end(ct === 'application/json' ? JSON.stringify(result.body, null, 2) : result.body);
     }
   } catch (err) {
     console.error(`[${req.method} ${req.url}]`, err);
     res.writeHead(500, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ error: 'Internal server error' }));
   }
-});
+}
 
 server.listen(PORT, HOST, () => {
   console.log(`PracticeLife API running at https://${HOST}:${PORT}`);
@@ -525,13 +561,13 @@ server.listen(PORT, HOST, () => {
 
 // Graceful shutdown
 process.on('SIGINT', () => {
-  closeDb();
+  closeDb(); closeTaskDb();
   server.close();
   process.exit(0);
 });
 
 process.on('SIGTERM', () => {
-  closeDb();
+  closeDb(); closeTaskDb();
   server.close();
   process.exit(0);
 });

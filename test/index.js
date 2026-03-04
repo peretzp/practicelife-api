@@ -8,6 +8,6 @@ Signed By: Peretz Partensky
 AI: Codex (GPT-5)
 Chat/Project: Multi-agent API wiring
 Conversation Link: Codex desktop thread (local)
-Artifact Path: /Users/peretz_1/api/test/index.js
+Artifact Path: /Users/peretz/api/test/index.js
 ---
 */

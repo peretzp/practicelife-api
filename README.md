@@ -8,20 +8,20 @@ Local-first API for MemoryAtlas (`asset` table), Obsidian vault data, machine st
 
 ## Boot
 ```bash
-cd /Users/peretz_1/api
+cd /Users/peretz/api
 npm install
 npm run dev
 ```
 
 Production-style start:
 ```bash
-cd /Users/peretz_1/api
+cd /Users/peretz/api
 npm start
 ```
 
 Bind to all interfaces:
 ```bash
-cd /Users/peretz_1/api
+cd /Users/peretz/api
 HOST=0.0.0.0 PORT=3001 npm run dev
 ```
 
@@ -59,15 +59,15 @@ curl -s http://127.0.0.1:3001/api/agents/protocol
 ## Tests
 Run smoke tests with Node built-in test runner:
 ```bash
-cd /Users/peretz_1/api
+cd /Users/peretz/api
 npm test
 ```
 
-Test file: `/Users/peretz_1/api/test/smoke.test.js`
+Test file: `/Users/peretz/api/test/smoke.test.js`
 
 ## Contract
 OpenAPI contract:
-- `/Users/peretz_1/api/openapi.json`
+- `/Users/peretz/api/openapi.json`
 
 ## Endpoint Groups
 - `/api/atlas/*`: MemoryAtlas data (SQLite table: `asset`)
@@ -87,5 +87,5 @@ Signed By: Peretz Partensky
 AI: Codex (GPT-5)
 Chat/Project: Multi-agent API wiring
 Conversation Link: Codex desktop thread (local)
-Artifact Path: /Users/peretz_1/api/README.md
+Artifact Path: /Users/peretz/api/README.md
 ---
