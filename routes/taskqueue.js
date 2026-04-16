@@ -28,17 +28,18 @@ function register(router) {
       limit: url.searchParams.get('limit') ? parseInt(url.searchParams.get('limit')) : 100,
       offset: url.searchParams.get('offset') ? parseInt(url.searchParams.get('offset')) : 0,
       sort: url.searchParams.get('sort'),
+      project: url.searchParams.get('project'),
     };
     const result = taskdb.listTasks(filters);
     return { status: 200, body: result };
   });
 
   // Create task
-  // POST /api/q/tasks { title, description, owner, assignee, priority, source, category, tags, due_date }
+  // POST /api/q/tasks { title, description, owner, assignee, priority, source, category, tags, due_date, project }
   router.post('/api/q/tasks', (req) => {
-    const { title, description, owner, assignee, priority, source, category, section, tags, due_date } = req.body || {};
+    const { title, description, owner, assignee, priority, source, category, section, tags, due_date, project } = req.body || {};
     if (!title) return { status: 400, body: { error: 'title is required' } };
-    const task = taskdb.createTask({ title, description, owner, assignee, priority, source, category, section, tags, due_date });
+    const task = taskdb.createTask({ title, description, owner, assignee, priority, source, category, section, tags, due_date, project });
     return { status: 201, body: task };
   });
 
@@ -128,6 +129,62 @@ function register(router) {
     if (!q) return { status: 400, body: { error: 'q parameter required' } };
     const results = taskdb.searchTasks(q);
     return { status: 200, body: { query: q, results, count: results.length } };
+  });
+
+  // --- PROJECTS ---
+
+  // List all projects with task counts
+  // GET /api/q/projects
+  router.get('/api/q/projects', (req) => {
+    const projects = taskdb.listProjects();
+    return { status: 200, body: { projects } };
+  });
+
+  // Get all tasks in a project
+  // GET /api/q/projects/:name
+  router.get('/api/q/projects/:name', (req, params) => {
+    const tasks = taskdb.getProjectTasks(params.name);
+    return { status: 200, body: { project: params.name, tasks, count: tasks.length } };
+  });
+
+  // --- DEPENDENCIES ---
+
+  // List dependencies for a task
+  // GET /api/q/tasks/:id/deps
+  router.get('/api/q/tasks/:id/deps', (req, params) => {
+    const id = parseInt(params.id);
+    const task = taskdb.getTask(id);
+    if (!task) return { status: 404, body: { error: 'Task not found' } };
+    const dependencies = taskdb.getDependencies(id);
+    const dependents = taskdb.getDependents(id);
+    return { status: 200, body: { task_id: id, dependencies, dependents } };
+  });
+
+  // Add dependency
+  // POST /api/q/tasks/:id/deps { depends_on, type }
+  router.post('/api/q/tasks/:id/deps', (req, params) => {
+    const id = parseInt(params.id);
+    const task = taskdb.getTask(id);
+    if (!task) return { status: 404, body: { error: 'Task not found' } };
+    const { depends_on, type } = req.body || {};
+    if (!depends_on) return { status: 400, body: { error: 'depends_on is required' } };
+    const depTask = taskdb.getTask(parseInt(depends_on));
+    if (!depTask) return { status: 404, body: { error: 'Dependency task not found' } };
+    try {
+      const deps = taskdb.addDependency(id, parseInt(depends_on), type || 'blocks');
+      return { status: 201, body: { task_id: id, dependencies: deps } };
+    } catch (e) {
+      return { status: 400, body: { error: e.message } };
+    }
+  });
+
+  // Remove dependency
+  // DELETE /api/q/tasks/:id/deps/:depId
+  router.delete('/api/q/tasks/:id/deps/:depId', (req, params) => {
+    const id = parseInt(params.id);
+    const depId = parseInt(params.depId);
+    taskdb.removeDependency(id, depId);
+    return { status: 200, body: { removed: { task_id: id, depends_on: depId } } };
   });
 
   // --- BACKWARD COMPAT: Import from TASKS.md ---

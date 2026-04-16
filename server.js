@@ -28,6 +28,7 @@ require('./routes/spend').register(router);
 require('./routes/fleet').register(router);
 require('./routes/tasks').register(router);
 require('./routes/taskqueue').register(router);
+require('./routes/commands').register(router);
 
 // Root endpoint — API index
 router.get('/api', (req, params) => {
@@ -91,6 +92,11 @@ router.get('/api', (req, params) => {
           'GET /api/spend': 'Token usage and cost analysis across all AI services',
           'GET /api/spend/cache': 'Explain how Claude prompt caching saves money',
           'GET /api/spend/services': 'Token usage apportioned by service (:3000, :3001, Cursor, etc)',
+        },
+        commands: {
+          'GET /api/commands': 'Full command registry — all scripts in ~/.local/bin/ with auto-extracted docs',
+          'GET /api/commands/:name': 'Detail for a single command (header, usage, language, author)',
+          'GET /api/commands/health': 'Documentation health — coverage rate, undocumented commands',
         },
       },
     },
