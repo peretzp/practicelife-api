@@ -19,7 +19,7 @@
     "node": ">=20.0.0"
   },
   "dependencies": {
-    "better-sqlite3": "^12.6.2",
+    "better-sqlite3": "^12.10.0",
     "dotenv": "^17.3.1",
     "langfuse": "^3.38.6"
   }

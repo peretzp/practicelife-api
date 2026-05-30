@@ -5,10 +5,13 @@ const http = require('http');
 const os = require('os');
 
 const ANVIL_LAN = '192.168.1.105';
-const ANVIL_TS = '100.116.17.120';
+const ANVIL_TS = '100.80.178.111'; // Updated from 100.116.17.120
 const ANVIL_OLLAMA = 11434;
 const ANVIL_DASHBOARD = 3000;
 const LITELLM_PORT = 4000;
+
+const BEHEMOTH_TS = '100.120.103.42';
+const KOROVIEV_TS = '100.93.56.61';
 
 function run(cmd, timeout = 5000) {
   try {
@@ -65,38 +68,38 @@ function getHearthSystem() {
 function register(router) {
   // GET /api/fleet — Full fleet status
   router.get('/api/fleet', async (req, params) => {
-    // Probe all endpoints in parallel (Anvil dashboard replaces multiple probes)
+    // Probe all endpoints in parallel
     const [
       anvilDashboard,
       anvilOllama,
       anvilOllamaTs,
       litellm,
       localOllama,
+      behemothOllama,
+      korovievOllama,
     ] = await Promise.all([
       probe(ANVIL_LAN, ANVIL_DASHBOARD, '/api/status'),
       probe(ANVIL_LAN, ANVIL_OLLAMA, '/api/tags'),
       probe(ANVIL_TS, ANVIL_OLLAMA, '/api/tags'),
       probe('127.0.0.1', LITELLM_PORT, '/health/readiness'),
       probe('127.0.0.1', ANVIL_OLLAMA, '/api/tags'),
+      probe(BEHEMOTH_TS, ANVIL_OLLAMA, '/api/tags'),
+      probe(KOROVIEV_TS, ANVIL_OLLAMA, '/api/tags'),
     ]);
 
-    // Parse Anvil models — prefer dashboard data, fallback to direct Ollama
+    // Parse Anvil models
     let anvilModels = [];
     if (anvilDashboard.ok && anvilDashboard.data?.ollama?.available) {
       anvilModels = anvilDashboard.data.ollama.available.map(m => ({
         name: m.name,
         size: m.sizeGB + 'GB',
         family: m.family || 'unknown',
-        parameterSize: m.parameterSize || 'unknown',
-        quantization: m.quantization || 'unknown',
       }));
     } else if (anvilOllama.ok && anvilOllama.data?.models) {
       anvilModels = anvilOllama.data.models.map(m => ({
         name: m.name,
         size: m.size ? `${(m.size / 1073741824).toFixed(1)}GB` : 'unknown',
         family: m.details?.family || 'unknown',
-        parameterSize: m.details?.parameter_size || 'unknown',
-        quantization: m.details?.quantization_level || 'unknown',
       }));
     }
 
@@ -110,22 +113,9 @@ function register(router) {
       }));
     }
 
-    // Get Anvil system info — prefer dashboard API (fast), fallback to SSH (slow)
-    let anvilSystem = null;
-    let anvilMetrics = null;
-    let anvilJobs = null;
-    if (anvilDashboard.ok && anvilDashboard.data) {
-      const ad = anvilDashboard.data;
-      anvilSystem = ad.system;
-      anvilMetrics = ad.metrics;
-      anvilJobs = ad.jobs;
-    } else if (anvilOllama.ok) {
-      anvilSystem = getAnvilSystem();
-    }
-
     const hearthSystem = getHearthSystem();
 
-    // LiteLLM routes (needs auth header)
+    // LiteLLM routes
     let litellmModels = [];
     if (litellm.ok) {
       litellmModels = await new Promise(resolve => {
@@ -159,7 +149,6 @@ function register(router) {
             ip: p.TailscaleIPs?.[0],
             online: p.Online,
             os: p.OS,
-            lastSeen: p.LastSeen,
           }))
         ];
       } catch {}
@@ -168,91 +157,50 @@ function register(router) {
     const fleet = {
       timestamp: new Date().toISOString(),
       machines: {
+        behemoth: {
+          name: 'Behemoth',
+          model: 'MacBook Pro M4 Max',
+          specs: { ram: '64GB', cpu: '16-core', gpu: '40-core' },
+          role: 'Primary dashboard, Concord agent, Boris workstation',
+          ip: { tailscale: BEHEMOTH_TS },
+          status: behemothOllama.ok ? 'online' : 'unreachable',
+          latencyMs: behemothOllama.latencyMs,
+        },
+        koroviev: {
+          name: 'Koroviev',
+          model: 'MacBook Pro M4 Pro',
+          specs: { ram: '48GB', cpu: '14-core' },
+          role: 'Mission Control, Fleet Watch, Voice daemon',
+          ip: { tailscale: KOROVIEV_TS },
+          status: korovievOllama.ok ? 'online' : 'unreachable',
+          latencyMs: korovievOllama.latencyMs,
+        },
         hearth: {
           name: 'Hearth',
           model: 'Mac Studio M2 Max',
-          specs: { ram: '64GB', cpu: '12-core', gpu: '30-core', storage: '2TB' },
+          specs: { ram: '64GB', cpu: '12-core', storage: '2TB' },
           role: 'Orchestration hub — services, agents, routing',
           ip: { lan: '192.168.1.113' },
           system: hearthSystem,
-          services: {
-            dashboard: { port: 3000, status: run('/usr/sbin/lsof -ti:3000') ? 'up' : 'down' },
-            api: { port: 3001, status: 'up' }, // we're running right now
-            promptBrowser: { port: 3002, status: run('/usr/sbin/lsof -ti:3002') ? 'up' : 'down' },
-            contactVerify: { port: 3003, status: run('/usr/sbin/lsof -ti:3003') ? 'up' : 'down' },
-            litellm: { port: 4000, status: litellm.ok ? 'up' : 'down', latencyMs: litellm.latencyMs },
-            ollama: { port: 11434, status: localOllama.ok ? 'up' : 'down' },
-          },
           models: localModels,
         },
         anvil: {
           name: 'Anvil',
           model: 'Mac Studio M3 Ultra',
-          specs: { ram: '96GB', cpu: '28-core', gpu: '60-core', storage: '4TB', bandwidth: '819 GB/s' },
+          specs: { ram: '96GB', cpu: '28-core', gpu: '60-core', bandwidth: '819 GB/s' },
           role: 'Inference workhorse — local LLM serving',
           ip: { lan: ANVIL_LAN, tailscale: ANVIL_TS },
-          system: anvilSystem,
-          metrics: anvilMetrics,
-          jobs: anvilJobs,
-          dashboard: {
-            url: `http://${ANVIL_LAN}:${ANVIL_DASHBOARD}`,
-            status: anvilDashboard.ok ? 'up' : 'down',
-            latencyMs: anvilDashboard.latencyMs,
-          },
-          connectivity: {
-            lan: { reachable: anvilOllama.ok, latencyMs: anvilOllama.latencyMs },
-            tailscale: { reachable: anvilOllamaTs.ok, latencyMs: anvilOllamaTs.latencyMs },
-          },
           ollama: {
             status: anvilOllama.ok ? 'up' : 'down',
             models: anvilModels,
-            totalSizeGB: anvilModels.reduce((sum, m) => sum + parseFloat(m.size) || 0, 0).toFixed(1),
           },
         },
         nas: {
           name: 'Synology NAS (DS223j)',
           role: 'Storage, backups, web hosting',
           ip: { lan: '192.168.1.57', tailscale: '100.93.227.12' },
-          specs: { ram: '1GB', storage: '16TB', arch: 'ARM64' },
-          services: ['Time Machine', 'Caddy (web)', 'cloudflared (tunnel)'],
+          specs: { ram: '1GB', storage: '16TB' },
         },
-        mobile: {
-          ipad: {
-            name: 'iPad Pro 13" M4',
-            role: 'Mobile dashboard viewer, Obsidian sync, Shortcuts automation',
-            capabilities: [
-              'View dashboard at https://hearth.local:3000 (via Tailscale)',
-              'Obsidian vault sync (iCloud)',
-              'Shortcuts → LiteLLM API for quick AI queries',
-              'VNC to Anvil for monitoring',
-            ],
-          },
-          iphone: {
-            name: 'iPhone Pro Max 17',
-            role: 'Notifications, quick queries, voice capture',
-            capabilities: [
-              'Apple Voice Memos → MemoryAtlas pipeline',
-              'Shortcuts → LiteLLM API queries',
-              'Push notifications from services (planned)',
-              'Tailscale mesh access to all machines',
-            ],
-          },
-        },
-      },
-      routing: {
-        litellm: {
-          status: litellm.ok ? 'up' : 'down',
-          port: LITELLM_PORT,
-          models: litellmModels,
-          description: 'Universal AI gateway — routes to local, Anvil, and cloud models',
-        },
-        flowDescription: [
-          'Claude Code (Hearth) → LiteLLM :4000 → Anvil Ollama :11434 (inference)',
-          'Claude Code (Hearth) → Direct HTTP → Anvil Ollama :11434 (low latency)',
-          'iPad/iPhone → Tailscale → Hearth :4000 → Anvil (via LiteLLM)',
-          'iPad/iPhone → Tailscale → Hearth :3000 (dashboard)',
-          'Any device → Tailscale → Anvil VNC (Screen Sharing)',
-        ],
       },
       tailscale: {
         devices: tailscaleDevices,
@@ -269,37 +217,16 @@ function register(router) {
     if (!result.ok) {
       return { status: 200, body: { status: 'unreachable', latencyMs: result.latencyMs } };
     }
-
-    const models = result.data?.models?.map(m => ({
-      name: m.name,
-      size: m.size ? `${(m.size / 1073741824).toFixed(1)}GB` : 'unknown',
-    })) || [];
-
-    return {
-      status: 200,
-      body: {
-        status: 'online',
-        latencyMs: result.latencyMs,
-        models,
-        totalModels: models.length,
-        timestamp: new Date().toISOString(),
-      },
-    };
+    const models = result.data?.models?.map(m => ({ name: m.name, size: m.size })) || [];
+    return { status: 200, body: { status: 'online', latencyMs: result.latencyMs, models } };
   });
 
-  // GET /api/fleet/search — Semantic search over vault embeddings (proxied to Anvil)
+  // GET /api/fleet/search — Semantic search over vault embeddings
   router.get('/api/fleet/search', async (req, params) => {
     const url = new URL(req.url, 'http://localhost');
     const q = url.searchParams.get('q');
-    const limit = url.searchParams.get('limit') || '10';
-    if (!q) {
-      return { status: 400, body: { error: 'Missing ?q= parameter' } };
-    }
-    const result = await probe(ANVIL_LAN, 3100, `/search?q=${encodeURIComponent(q)}&limit=${limit}`);
-    if (!result.ok) {
-      return { status: 502, body: { error: 'Vault embed API unreachable on Anvil:3100', latencyMs: result.latencyMs } };
-    }
-    return { status: 200, body: result.data };
+    const result = await probe(ANVIL_LAN, 3100, `/search?q=${encodeURIComponent(q)}`);
+    return { status: result.ok ? 200 : 502, body: result.data || { error: 'unreachable' } };
   });
 
   // GET /api/fleet/routes — LiteLLM routing table
@@ -311,34 +238,11 @@ function register(router) {
       }, res => {
         let body = '';
         res.on('data', d => body += d);
-        res.on('end', () => {
-          try { resolve((JSON.parse(body).data || []).map(m => m.id)); }
-          catch { resolve(null); }
-        });
+        res.on('end', () => { try { resolve(JSON.parse(body).data.map(m => m.id)); } catch { resolve([]); } });
       });
-      req.on('error', () => resolve(null));
-      req.on('timeout', () => { req.destroy(); resolve(null); });
+      req.on('error', () => resolve([]));
     });
-    if (models === null) {
-      return { status: 200, body: { status: 'litellm_unreachable', models: [] } };
-    }
-
-    // Categorize routes
-    const anvil = models.filter(m => m.startsWith('anvil/'));
-    const local = models.filter(m => m.startsWith('local/'));
-    const cloud = models.filter(m => m.startsWith('claude/') || m.startsWith('gpt/') || m.startsWith('gemini/'));
-    const gpu = models.filter(m => m.startsWith('gpu/'));
-
-    return {
-      status: 200,
-      body: {
-        status: 'ok',
-        total: models.length,
-        routes: { anvil, local, cloud, gpu },
-        all: models,
-        timestamp: new Date().toISOString(),
-      },
-    };
+    return { status: 200, body: { status: 'ok', routes: models } };
   });
 }
 
