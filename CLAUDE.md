@@ -27,17 +27,29 @@ npm test                  # Run test suite
 
 **Structure**:
 ```
-api/
+.
 ├── server.js             # HTTP server, router, middleware
+├── openapi.json          # OpenAPI spec for the API
 ├── routes/               # Route handlers by domain
+│   ├── agent-lifecycle.js # /api/agent-lifecycle/* — Agent lifecycle events
+│   ├── agents.js         # /api/agents/* — Agent coordination state
 │   ├── atlas.js          # /api/atlas/* — MemoryAtlas voice memo data
-│   ├── vault.js          # /api/vault/* — Obsidian vault queries
+│   ├── commands.js       # /api/commands/* — Command execution
+│   ├── ecosystem.js      # /api/ecosystem/* — Ecosystem state
+│   ├── fleet.js          # /api/fleet/* — Fleet coordination
+│   ├── spend.js          # /api/spend/* — Spend tracking
 │   ├── system.js         # /api/system/* — System state (from life-dashboard logic)
-│   └── agents.js         # /api/agents/* — Agent coordination state
+│   ├── taskqueue.js      # /api/taskqueue/* — Task queue
+│   ├── tasks.js          # /api/tasks/* — Task management
+│   └── vault.js          # /api/vault/* — Obsidian vault queries
 ├── lib/                  # Shared utilities
 │   ├── db.js             # SQLite connection to atlas.db
-│   ├── vault.js          # Vault filesystem helpers
-│   └── router.js         # Minimal router (no framework)
+│   ├── langfuse-wrapper.js # Langfuse tracing wrapper
+│   ├── router.js         # Minimal router (no framework)
+│   ├── taskdb.js         # Task database helpers
+│   └── vault.js          # Vault filesystem helpers
+├── public/
+│   └── spend.html        # Spend dashboard page
 ├── test/                 # Tests
 ├── package.json
 └── CLAUDE.md
@@ -54,4 +66,4 @@ api/
 
 ## Multi-Agent Ownership
 
-See `~/agent-protocol.md` for file ownership rules. This directory (`~/api/`) is collaboratively owned — check the ledger before editing files claimed by another agent.
+See `~/agent-protocol.md` for file ownership rules. This repository (the `practicelife-api` root) is collaboratively owned — check the ledger before editing files claimed by another agent.
