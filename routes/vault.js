@@ -31,6 +31,8 @@ function register(router) {
     const fs = require('fs');
     const path = require('path');
     const { VAULT_PATH } = require('../lib/vault');
+    // Degrade gracefully when the vault base directory is absent.
+    if (!fs.existsSync(VAULT_PATH)) return { status: 200, body: { structure: [] } };
     const entries = fs.readdirSync(VAULT_PATH, { withFileTypes: true })
       .filter(e => !e.name.startsWith('.'))
       .map(e => ({ name: e.name, type: e.isDirectory() ? 'directory' : 'file' }));
