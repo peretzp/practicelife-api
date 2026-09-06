@@ -29,6 +29,8 @@ require('./routes/fleet').register(router);
 require('./routes/tasks').register(router);
 require('./routes/taskqueue').register(router);
 require('./routes/commands').register(router);
+require('./routes/coord').register(router);
+require('./routes/slack').register(router);
 
 // Root endpoint — API index
 router.get('/api', (req, params) => {
@@ -516,6 +518,9 @@ const server = https.createServer(sslOptions, (req, res) => {
     let body = '';
     req.on('data', chunk => { body += chunk; });
     req.on('end', () => {
+      // Preserve the exact raw bytes before parsing — Slack signature
+      // verification requires the original body string.
+      req.rawBody = body;
       try {
         req.body = body ? JSON.parse(body) : {};
       } catch { req.body = {}; }

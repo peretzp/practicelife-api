@@ -1,4 +1,5 @@
 require('./smoke.test');
+require('./coord.test');
 
 /*
 ---
