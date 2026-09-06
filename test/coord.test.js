@@ -16,6 +16,7 @@ process.env.HOME = TMP_HOME;
 
 const { requireSecret, verifySlackSignature } = require('../lib/coord-auth');
 const coorddb = require('../lib/coorddb');
+const taskdb = require('../lib/taskdb');
 const { Router } = require('../lib/router');
 const slack = require('../routes/slack');
 const { isAnvilConnectivityAlert } = slack;
@@ -136,6 +137,11 @@ test('isAnvilConnectivityAlert matches connectivity complaints', () => {
   assert.ok(isAnvilConnectivityAlert('Anvil is unreachable'));
   assert.ok(isAnvilConnectivityAlert('lost connection to anvil'));
   assert.ok(isAnvilConnectivityAlert('anvil offline'));
+  // Fix 3 — word-boundary / phrase positives.
+  assert.ok(isAnvilConnectivityAlert("hella can't connect to anvil"));
+  assert.ok(isAnvilConnectivityAlert('anvil connection timed out'));
+  assert.ok(isAnvilConnectivityAlert('not connecting to the Anvil box'));
+  assert.ok(isAnvilConnectivityAlert('anvil is offline'));
 });
 
 test('isAnvilConnectivityAlert ignores non-alerts', () => {
@@ -144,6 +150,11 @@ test('isAnvilConnectivityAlert ignores non-alerts', () => {
   assert.equal(isAnvilConnectivityAlert('hearth deploy finished'), false);
   assert.equal(isAnvilConnectivityAlert(''), false);
   assert.equal(isAnvilConnectivityAlert(undefined), false);
+  // Fix 3 — bare "no"/"not"/"down"/"online" substrings must NOT trigger.
+  assert.equal(isAnvilConnectivityAlert('another anvil note'), false);
+  assert.equal(isAnvilConnectivityAlert('anvil is back online and reachable'), false);
+  assert.equal(isAnvilConnectivityAlert('notify me when anvil syncs'), false);
+  assert.equal(isAnvilConnectivityAlert('download the anvil logs'), false);
 });
 
 // --- slack route ---
@@ -182,5 +193,64 @@ test('slack events url_verification handshake returns the challenge', async () =
   const badResult = await match.handler(badReq, match.params);
   assert.equal(badResult.status, 401);
   assert.equal(badResult.body.error, 'bad signature');
+  delete process.env.SLACK_SIGNING_SECRET;
+});
+
+// --- idempotency (Fix 2) ---
+
+test('markEventSeen returns true on first sight and false thereafter', () => {
+  const key = 'Ev_UNIQUE_' + Date.now();
+  assert.equal(coorddb.markEventSeen(key), true);
+  assert.equal(coorddb.markEventSeen(key), false);
+  assert.equal(coorddb.markEventSeen(key + '_other'), true);
+});
+
+async function waitFor(fn, timeoutMs = 8000, stepMs = 25) {
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    if (fn()) return true;
+    await new Promise(r => setTimeout(r, stepMs));
+  }
+  return fn();
+}
+
+test('slack events dedupes retries by event_id — one task, one coord event', async () => {
+  process.env.SLACK_SIGNING_SECRET = SIGNING_SECRET;
+  const router = new Router();
+  slack.register(router);
+  const match = router.match('POST', '/api/slack/events');
+
+  const inner = { type: 'message', user: 'U9', channel: 'C_DEDUPE', ts: '111.222', text: "can't reach anvil" };
+  const payload = { type: 'event_callback', event_id: 'Ev_DEDUPE_1', event: inner };
+  const rawBody = JSON.stringify(payload);
+  const tsHeader = Math.floor(Date.now() / 1000).toString();
+  const headers = { 'x-slack-request-timestamp': tsHeader, 'x-slack-signature': slackSig(rawBody, tsHeader) };
+  const makeReq = () => ({ method: 'POST', url: '/api/slack/events', rawBody, body: JSON.parse(rawBody), headers });
+
+  // First delivery — accepted, dispatches side effects (fire-and-forget).
+  const r1 = await match.handler(makeReq(), match.params);
+  assert.equal(r1.status, 200);
+  assert.equal(r1.body.ok, true);
+  assert.ok(!r1.body.duplicate, 'first delivery is not a duplicate');
+
+  // Retry with the same event_id — deduped, no side effects.
+  const r2 = await match.handler(makeReq(), match.params);
+  assert.equal(r2.status, 200);
+  assert.equal(r2.body.duplicate, true);
+
+  // The single fire-and-forget dispatch persists exactly one task + one event.
+  const alertTasks = () => taskdb.listTasks({ source: 'slack' }).tasks
+    .filter(t => t.title === 'Fix Anvil connectivity');
+  const appeared = await waitFor(() => alertTasks().length >= 1);
+  assert.ok(appeared, 'expected the alert task to be created by the dispatch');
+  assert.equal(alertTasks().length, 1, 'exactly one task despite the retry');
+
+  const alertEvents = coorddb.listEvents({ source: 'slack', kind: 'alert' })
+    .filter(e => e.ref === 'C_DEDUPE/111.222');
+  assert.equal(alertEvents.length, 1, 'exactly one coord event despite the retry');
+
+  // Outbound edges stayed inert (no SLACK_BOT_TOKEN / OAKLAND_FLEET_URL set).
+  assert.ok(!process.env.SLACK_BOT_TOKEN);
+  assert.ok(!process.env.OAKLAND_FLEET_URL);
   delete process.env.SLACK_SIGNING_SECRET;
 });
