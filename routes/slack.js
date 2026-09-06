@@ -20,38 +20,48 @@ function isAnvilConnectivityAlert(text) {
 }
 
 // Side effects for an Anvil alert. Runs AFTER the 200 is sent so we never blow
-// Slack's ~3s ack window. Persists the durable record FIRST (task + coord
-// event); a throw there propagates so the caller releases the claim and a Slack
-// retry can re-run. Enrichment (probe/forward/post) is best-effort AFTER and its
-// failures are swallowed so they can't lose the already-persisted alert.
-async function handleAnvilAlert(event) {
+// Slack's ~3s ack window. The durable step (task + coord event) is fully
+// SYNCHRONOUS and the claim is completed immediately after it with NO await in
+// between — so a crash during the later (awaited) enrichment can never leave the
+// claim 'processing', which a stale reclaim would otherwise duplicate. If the
+// durable step throws, the claim is released so a Slack retry reprocesses.
+// Enrichment failures are swallowed and never touch the claim.
+async function handleAnvilAlert(event, body, key) {
   const peretzId = process.env.PERETZ_SLACK_ID || 'U0B090UP4DV';
   const channel = event.channel;
   const slackUser = event.user;
 
-  // (1) Durable record — must succeed for the event to count as processed.
-  const task = taskdb.createTask({
-    title: 'Fix Anvil connectivity',
-    description:
-      `Reporter: <@${slackUser}>\n` +
-      `Channel: ${channel}\n` +
-      `Original message: ${event.text}`,
-    assignee: peretzId,
-    priority: 1,
-    source: 'slack',
-  });
-  taskdb.addWatcher(task.id, peretzId);
+  let task;
+  // (1) Durable step — synchronous; completeEvent runs with no await before it.
+  try {
+    task = taskdb.createTask({
+      title: 'Fix Anvil connectivity',
+      description:
+        `Reporter: <@${slackUser}>\n` +
+        `Channel: ${channel}\n` +
+        `Original message: ${event.text}`,
+      assignee: peretzId,
+      priority: 1,
+      source: 'slack',
+    });
+    taskdb.addWatcher(task.id, peretzId);
+    coorddb.appendEvent({
+      source: 'slack',
+      actor: slackUser,
+      kind: 'alert',
+      ref: `${channel}/${event.ts}`,
+      summary: 'Anvil connectivity alert',
+      payload: { text: event.text, taskId: task.id },
+    });
+    coorddb.completeEvent(key);
+  } catch (e) {
+    console.error('[slack] anvil alert durable step failed:', e);
+    coorddb.releaseEvent(key); // durable step failed → allow a Slack retry to reprocess
+    return;
+  }
 
-  coorddb.appendEvent({
-    source: 'slack',
-    actor: slackUser,
-    kind: 'alert',
-    ref: `${channel}/${event.ts}`,
-    summary: 'Anvil connectivity alert',
-    payload: { text: event.text, taskId: task.id },
-  });
-
-  // (2) Best-effort enrichment — never lose the alert over a probe/post failure.
+  // (2) Best-effort enrichment — the alert is already persisted and the claim is
+  // completed, so failures here must NOT touch the claim.
   try {
     const probe = await probeAnvil();
     taskdb.addMessage(task.id, {
@@ -79,8 +89,6 @@ async function handleAnvilAlert(event) {
   } catch (e) {
     console.error('[slack] anvil alert enrichment failed:', e);
   }
-
-  return task;
 }
 
 function register(router) {
@@ -116,15 +124,12 @@ function register(router) {
           return { status: 200, body: { ok: true, duplicate: true } };
         }
 
-        // Ack immediately; run side effects fire-and-forget. Mark done only
-        // after the durable step succeeds; release the claim if it threw so a
-        // Slack retry can re-run.
-        handleAnvilAlert(event, body, key)
-          .then(() => coorddb.completeEvent(key))
-          .catch(err => {
-            console.error('[slack] handleAnvilAlert failed:', err);
-            coorddb.releaseEvent(key);
-          });
+        // Ack immediately; run side effects fire-and-forget. complete/release
+        // of the claim now happen INSIDE handleAnvilAlert, driven solely by the
+        // durable step — so this dispatch only needs a crash guard.
+        handleAnvilAlert(event, body, key).catch(err =>
+          console.error('[slack] anvil alert handler crashed:', err)
+        );
 
         return { status: 200, body: { ok: true } };
       }

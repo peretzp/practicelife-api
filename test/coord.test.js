@@ -229,6 +229,40 @@ test('claimEvent claims once, dedupes, reclaims stale, and releases', () => {
   assert.deepEqual(coorddb.claimEvent(relKey), { claimed: true });
 });
 
+test('initSchema migrates a legacy processed_events table (ts TEXT, no status)', () => {
+  const db = coorddb.getDb();
+
+  // Simulate a DB from an earlier build: legacy schema (ts TEXT, no status),
+  // with a bookkeeping row present.
+  db.exec('DROP TABLE IF EXISTS processed_events');
+  db.exec('CREATE TABLE processed_events (key TEXT PRIMARY KEY, ts TEXT)');
+  db.prepare('INSERT INTO processed_events (key, ts) VALUES (?, ?)')
+    .run('legacy-key', new Date().toISOString());
+
+  // Against the legacy shape, claimEvent's SELECT ts,status would throw (500).
+  assert.throws(() => coorddb.claimEvent('anything'), /no such column/);
+
+  // Run the module's migration/init path — drops legacy, recreates current shape.
+  coorddb.initSchema();
+
+  const cols = db.prepare('PRAGMA table_info(processed_events)').all();
+  assert.ok(cols.some(c => c.name === 'status'), 'status column present after migration');
+  assert.equal(
+    String(cols.find(c => c.name === 'ts').type).toUpperCase(), 'INTEGER',
+    'ts is INTEGER after migration'
+  );
+  assert.equal(
+    db.prepare('SELECT COUNT(*) AS c FROM processed_events').get().c, 0,
+    'transient legacy rows dropped'
+  );
+
+  // claim/complete now work without throwing.
+  const key = 'Ev_MIGRATED_' + Date.now();
+  assert.deepEqual(coorddb.claimEvent(key), { claimed: true });
+  coorddb.completeEvent(key);
+  assert.deepEqual(coorddb.claimEvent(key), { claimed: false, duplicate: true });
+});
+
 async function waitFor(fn, timeoutMs = 8000, stepMs = 25) {
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {
@@ -256,6 +290,13 @@ test('slack events dedupes retries by event_id — one task, one coord event', a
   assert.equal(r1.status, 200);
   assert.equal(r1.body.ok, true);
   assert.ok(!r1.body.duplicate, 'first delivery is not a duplicate');
+
+  // completeEvent runs SYNCHRONOUSLY in the durable step, so the claim is
+  // already 'done' right after the ack — before any enrichment await resolves
+  // and even though the outbound edges are no-ops / the probe fails here.
+  const claimRow = coorddb.getDb()
+    .prepare('SELECT status FROM processed_events WHERE key = ?').get('Ev_DEDUPE_1');
+  assert.equal(claimRow.status, 'done', 'claim marked done during the durable step');
 
   // Retry with the same event_id — deduped, no side effects.
   const r2 = await match.handler(makeReq(), match.params);
