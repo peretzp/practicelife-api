@@ -142,6 +142,10 @@ test('isAnvilConnectivityAlert matches connectivity complaints', () => {
   assert.ok(isAnvilConnectivityAlert('anvil connection timed out'));
   assert.ok(isAnvilConnectivityAlert('not connecting to the Anvil box'));
   assert.ok(isAnvilConnectivityAlert('anvil is offline'));
+  // Finding 2 — broadened "not <signal>" phrases.
+  assert.ok(isAnvilConnectivityAlert('anvil is not reachable'));
+  assert.ok(isAnvilConnectivityAlert('anvil not responding'));
+  assert.ok(isAnvilConnectivityAlert('anvil is not available'));
 });
 
 test('isAnvilConnectivityAlert ignores non-alerts', () => {
@@ -198,11 +202,31 @@ test('slack events url_verification handshake returns the challenge', async () =
 
 // --- idempotency (Fix 2) ---
 
-test('markEventSeen returns true on first sight and false thereafter', () => {
-  const key = 'Ev_UNIQUE_' + Date.now();
-  assert.equal(coorddb.markEventSeen(key), true);
-  assert.equal(coorddb.markEventSeen(key), false);
-  assert.equal(coorddb.markEventSeen(key + '_other'), true);
+test('claimEvent claims once, dedupes, reclaims stale, and releases', () => {
+  const key = 'Ev_CLAIM_' + Date.now();
+
+  // First claim wins; an immediate re-claim while 'processing' is a duplicate.
+  assert.deepEqual(coorddb.claimEvent(key), { claimed: true });
+  assert.deepEqual(coorddb.claimEvent(key), { claimed: false, duplicate: true });
+
+  // After completion it stays a duplicate.
+  coorddb.completeEvent(key);
+  assert.deepEqual(coorddb.claimEvent(key), { claimed: false, duplicate: true });
+
+  // A row stuck 'processing' past staleMs is reclaimable (crash/restart case).
+  const staleKey = 'Ev_STALE_' + Date.now();
+  assert.deepEqual(coorddb.claimEvent(staleKey), { claimed: true });
+  coorddb.getDb().prepare('UPDATE processed_events SET ts = ? WHERE key = ?')
+    .run(Date.now() - 5 * 60 * 1000, staleKey); // age it 5 minutes
+  const reclaim = coorddb.claimEvent(staleKey); // default staleMs = 60000
+  assert.equal(reclaim.claimed, true);
+  assert.equal(reclaim.reclaimed, true);
+
+  // After release the key is claimable again.
+  const relKey = 'Ev_REL_' + Date.now();
+  assert.deepEqual(coorddb.claimEvent(relKey), { claimed: true });
+  coorddb.releaseEvent(relKey);
+  assert.deepEqual(coorddb.claimEvent(relKey), { claimed: true });
 });
 
 async function waitFor(fn, timeoutMs = 8000, stepMs = 25) {

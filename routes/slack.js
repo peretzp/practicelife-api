@@ -11,28 +11,31 @@ const { postSlackMessage, forwardToOakland } = require('../lib/notify');
 // Heuristic: does this message report Anvil being unreachable / down?
 // Requires the whole word "anvil" AND a whole-word/phrase connectivity signal,
 // so incidental substrings (download, online, another, notify, know) never fire.
+// Multi-word negatives ("not reachable", "not responding", ...) are matched as
+// phrases so we keep recall without reintroducing bare-substring false matches.
 function isAnvilConnectivityAlert(text) {
   if (!text) return false;
   return /\banvil\b/i.test(text) &&
-    /\b(can'?t|cannot|couldn'?t|unable|unreachable|offline|down|dropping|disconnect\w*|lost|timed?\s*out|timeout|refus\w*|fail\w*|no\s+connection|not\s+connect\w*)\b/i.test(text);
+    /\b(can'?t|cannot|couldn'?t|unable|unreachable|offline|down|dropping|disconnect\w*|lost|timed?\s*out|timeout|refus\w*|fail\w*|no\s+connection|not\s+(?:reachable|responding|response|available|connect\w*|work\w*|up|online|responsive))\b/i.test(text);
 }
 
-// Fire-and-forget side effects for an Anvil alert. Runs AFTER the 200 is sent
-// so we never blow Slack's ~3s ack window. Must not throw into the caller.
+// Side effects for an Anvil alert. Runs AFTER the 200 is sent so we never blow
+// Slack's ~3s ack window. Persists the durable record FIRST (task + coord
+// event); a throw there propagates so the caller releases the claim and a Slack
+// retry can re-run. Enrichment (probe/forward/post) is best-effort AFTER and its
+// failures are swallowed so they can't lose the already-persisted alert.
 async function handleAnvilAlert(event) {
   const peretzId = process.env.PERETZ_SLACK_ID || 'U0B090UP4DV';
   const channel = event.channel;
   const slackUser = event.user;
 
-  const probe = await probeAnvil();
-
+  // (1) Durable record — must succeed for the event to count as processed.
   const task = taskdb.createTask({
     title: 'Fix Anvil connectivity',
     description:
       `Reporter: <@${slackUser}>\n` +
       `Channel: ${channel}\n` +
-      `Original message: ${event.text}\n\n` +
-      `Anvil probe:\n${JSON.stringify(probe, null, 2)}`,
+      `Original message: ${event.text}`,
     assignee: peretzId,
     priority: 1,
     source: 'slack',
@@ -45,25 +48,37 @@ async function handleAnvilAlert(event) {
     kind: 'alert',
     ref: `${channel}/${event.ts}`,
     summary: 'Anvil connectivity alert',
-    payload: { text: event.text, probe, taskId: task.id },
+    payload: { text: event.text, taskId: task.id },
   });
 
-  await forwardToOakland({
-    source: 'slack',
-    kind: 'alert',
-    summary: 'Anvil connectivity alert',
-    ref: `${channel}/${event.ts}`,
-    reporter: slackUser,
-    text: event.text,
-    probe,
-    taskId: task.id,
-  });
-
-  await postSlackMessage(
-    channel,
-    `👀 I see the alert — opened a priority task for <@${peretzId}>. Anvil probe: ` +
-    (probe.ok ? `reachable (${probe.latencyMs}ms)` : 'UNREACHABLE') + '.'
-  );
+  // (2) Best-effort enrichment — never lose the alert over a probe/post failure.
+  try {
+    const probe = await probeAnvil();
+    taskdb.addMessage(task.id, {
+      author: 'slack-bot',
+      type: 'note',
+      content:
+        `Anvil probe: ${probe.ok ? `reachable (${probe.latencyMs}ms)` : 'UNREACHABLE'}\n` +
+        JSON.stringify(probe, null, 2),
+    });
+    await forwardToOakland({
+      source: 'slack',
+      kind: 'alert',
+      summary: 'Anvil connectivity alert',
+      ref: `${channel}/${event.ts}`,
+      reporter: slackUser,
+      text: event.text,
+      probe,
+      taskId: task.id,
+    });
+    await postSlackMessage(
+      channel,
+      `👀 I see the alert — opened a priority task for <@${peretzId}>. Anvil probe: ` +
+      (probe.ok ? `reachable (${probe.latencyMs}ms)` : 'UNREACHABLE') + '.'
+    );
+  } catch (e) {
+    console.error('[slack] anvil alert enrichment failed:', e);
+  }
 
   return task;
 }
@@ -92,19 +107,24 @@ function register(router) {
       const isUserMessage = event.type === 'message' && !event.subtype && !event.bot_id;
 
       if (isUserMessage && isAnvilConnectivityAlert(event.text)) {
-        // Idempotency: dedupe on Slack's event_id (stable across retries), or
-        // fall back to channel:ts. Mark seen SYNCHRONOUSLY before dispatching
-        // any side effects — SQLite serializes the write, so concurrent
-        // retries carrying the same key can't both proceed.
-        const dedupeKey = body.event_id || `${event.channel}:${event.ts}`;
-        if (!coorddb.markEventSeen(dedupeKey)) {
+        // Idempotency: claim the event key (Slack's event_id is stable across
+        // retries; fall back to channel:ts) BEFORE any work. A claim held by a
+        // crashed run goes stale and can be reclaimed by a later retry.
+        const key = body.event_id || `${event.channel}:${event.ts}`;
+        const claim = coorddb.claimEvent(key);
+        if (!claim.claimed) {
           return { status: 200, body: { ok: true, duplicate: true } };
         }
 
-        // Fire-and-forget: do NOT await, so Slack gets its 200 immediately.
-        handleAnvilAlert(event).catch(err =>
-          console.error('[slack] handleAnvilAlert failed:', err)
-        );
+        // Ack immediately; run side effects fire-and-forget. Mark done only
+        // after the durable step succeeds; release the claim if it threw so a
+        // Slack retry can re-run.
+        handleAnvilAlert(event, body, key)
+          .then(() => coorddb.completeEvent(key))
+          .catch(err => {
+            console.error('[slack] handleAnvilAlert failed:', err);
+            coorddb.releaseEvent(key);
+          });
 
         return { status: 200, body: { ok: true } };
       }
