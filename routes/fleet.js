@@ -40,6 +40,17 @@ function probe(host, port, path, timeout = 3000) {
   });
 }
 
+// Quick Anvil connectivity probe — reused by the /api/fleet/anvil route and
+// external callers (e.g. the Slack alert handler). Returns { ok, status, latencyMs, models? }.
+async function probeAnvil() {
+  const result = await probe(ANVIL_LAN, ANVIL_OLLAMA, '/api/tags');
+  if (!result.ok) {
+    return { ok: false, status: 'unreachable', latencyMs: result.latencyMs };
+  }
+  const models = result.data?.models?.map(m => ({ name: m.name, size: m.size })) || [];
+  return { ok: true, status: 'online', latencyMs: result.latencyMs, models };
+}
+
 // Get Anvil system info via SSH (cached, fast)
 function getAnvilSystem() {
   const info = run('ssh -o ConnectTimeout=3 -o StrictHostKeyChecking=no anvil "export PATH=/opt/homebrew/bin:/usr/local/bin:$PATH && echo HOSTNAME=$(hostname) && echo UPTIME=$(uptime) && echo MEM=$(vm_stat | head -5) && echo DISK=$(df -h / | tail -1)" 2>/dev/null', 8000);
@@ -213,12 +224,10 @@ function register(router) {
 
   // GET /api/fleet/anvil — Quick Anvil-only health check
   router.get('/api/fleet/anvil', async (req, params) => {
-    const result = await probe(ANVIL_LAN, ANVIL_OLLAMA, '/api/tags');
-    if (!result.ok) {
-      return { status: 200, body: { status: 'unreachable', latencyMs: result.latencyMs } };
-    }
-    const models = result.data?.models?.map(m => ({ name: m.name, size: m.size })) || [];
-    return { status: 200, body: { status: 'online', latencyMs: result.latencyMs, models } };
+    const r = await probeAnvil();
+    const body = { status: r.status, latencyMs: r.latencyMs };
+    if (r.ok) body.models = r.models;
+    return { status: 200, body };
   });
 
   // GET /api/fleet/search — Semantic search over vault embeddings
@@ -246,4 +255,4 @@ function register(router) {
   });
 }
 
-module.exports = { register };
+module.exports = { register, probeAnvil };
