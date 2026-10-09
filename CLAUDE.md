@@ -55,3 +55,13 @@ api/
 ## Multi-Agent Ownership
 
 See `~/agent-protocol.md` for file ownership rules. This directory (`~/api/`) is collaboratively owned — check the ledger before editing files claimed by another agent.
+
+## Practices
+
+Shared practices live in [`docs/PRACTICES.md`](docs/PRACTICES.md), a synced copy of the canonical file in `peretzp/memoryatlas`. Edit it there, not here. This repo is public. The rules that matter most here:
+
+- **Nothing personal goes into git.** The API serves vault notes, MemoryAtlas rows, task threads and session logs. Never commit their contents, sample responses or real exports.
+- **Tests use synthetic stores.** Build a small `atlas.db` and vault in a temp dir with the same schema (one Cyrillic row, one emoji row) instead of reading the real ones under `$HOME`.
+- **Before pushing:** run `npm test`, then smoke-test the routes against a fake `$HOME` with those synthetic stores.
+- **Cloud sessions can't see the Mac.** The data sources above exist only there. Leave the remaining step under a dated "Open threads" heading for a session running on the Mac.
+- **Prefer PRs to direct pushes.** Drafts are fine; a person decides when to merge.
